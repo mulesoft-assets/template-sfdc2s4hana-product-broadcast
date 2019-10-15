@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:s4hana="http://www.mulesoft.org/schema/mule/s4hana" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+    xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+    xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+    xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools  http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+        http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+        http://www.mulesoft.org/schema/mule/s4hana http://www.mulesoft.org/schema/mule/s4hana/current/mule-s4hana.xsd">
+    <munit:config name="test-suite.xml" doc:name="MUnit configuration" />
+    <configuration-properties doc:name="Configuration properties" doc:id="234217af-d650-488b-87aa-4276a3c0587d" file="mule.test.properties" />
+    <munit:before-test name="test-suiteBefore_Test" description="Before tests actions" doc:id="f098bb37-e35a-4dbe-b3d4-ea5c511a3731">
+        <flow-ref doc:name="Call getTestProductFromS4HanaSubFlow" doc:id="7b87e228-2028-415c-b8fe-8dec94f5b028" name="getTestProductFromS4HanaSubFlow" />
+        <set-variable value="#[payload]" doc:name="Set testProductS4Hana Variable" doc:id="cdf33e67-0cf9-437b-ad85-e0153e72f8f8" variableName="testProductS4Hana" />
+        <ee:transform doc:name="Prepare common testing data" doc:id="3bf8d24f-f4b2-4b06-be7b-c62a5665e065">
+            <ee:message />
+            <ee:variables>
+                <ee:set-variable variableName="testData"><![CDATA[%dw 2.0
+output application/java
+var testDataId= randomInt(1000)
+---
+{
+	Name: "TestRecord" ++ testDataId,
+	ProductCode: vars.testProductS4Hana.Product,
+	Description: "Description" ++ testDataId
+}
+]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <logger level="INFO" doc:name="Log test data" doc:id="56690b25-ad31-4a29-8e77-49043e6aee1d" message="Test Data: #[output application/json --- vars.testData]" />
+        <salesforce:create doc:name="Create test Product in Salesforce" doc:id="3c5cfa0a-9c18-4197-911b-79a8813c31e3" config-ref="Salesforce_Config" type="Product2">
+            <salesforce:records><![CDATA[#[[vars.testData]]]]></salesforce:records>
+        </salesforce:create>
+        <set-variable value="#[payload[0].id]" doc:name="Store salesforce ID to variable sfdcTestID" doc:id="7c7d7ec1-0acc-4893-b048-9ceaed44d645" variableName="sfdcTestProductID" />
+    </munit:before-test>
+    <munit:test name="test-suite-mainFlowTest" description="Test" doc:id="ed97300c-bd30-4245-a000-1ea9e6b7c9d4">
+        <munit:execution>
+            <flow-ref doc:name="Call queryFlow" doc:id="d51bb94c-357e-44a8-a493-b182952b8bfc" name="queryFlow" />
+            <ee:transform doc:name="Preparing test data" doc:id="d2234296-3eff-4f25-8907-d3b3b4039c98">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload filter ($.Product == vars.testData.ProductCode 
+	and $.to_Description[0].ProductDescription == vars.testData.Description 
+)]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+            <flow-ref doc:name="Call businessLogicFlow" doc:id="6aa22154-4519-4908-8ab5-d980a96f048d" name="businessLogicFlow" />
+            <scripting:execute doc:name="Sleep for 10s until the processing is completed" doc:id="509ddc42-bf33-4a12-a0ef-b9d88056c2a6" engine="groovy">
+                <scripting:code>sleep(10000)</scripting:code>
+            </scripting:execute>
+            <flow-ref doc:name="Call getTestProductFromS4HanaSubFlow" doc:id="ed1674bf-793d-4878-84d4-c51675446b31" name="getTestProductFromS4HanaSubFlow" />
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that doc:name="Assert updated test record" doc:id="26feaa76-a72b-4644-8f24-664558d158fb" expression="#[vars.testData.Description]"
+                is="#[MunitTools::equalTo(payload.Description.ProductDescription)]" message="Test record has not been updated" />
+            <munit-tools:verify-call doc:name="Verify call to s4hana query " doc:id="3e2e1dc2-7aea-48d1-9498-8a546d38a2c0" processor="s4hana:query" atLeast="1" />
+            <munit-tools:verify-call doc:name="Verify call to Salesforce query" doc:id="b4413b07-01d4-484d-be4b-9655ecf41cf4" processor="salesforce:query"
+                atLeast="1" />
+            <munit-tools:verify-call doc:name="Verify call to s4hana update entity" doc:id="80c2bedc-95ea-45bb-a675-1508d597dd4a" processor="s4hana:update-entity"
+                atLeast="1" />
+        </munit:validation>
+    </munit:test>
+    <sub-flow name="getTestProductFromS4HanaSubFlow" doc:id="5a753081-63e9-4b2f-93c2-61ce21611806">
+        <s4hana:get-entity doc:name="Get Product from S4Hana" doc:id="050c1b7b-9cd2-4999-b67f-2b871bf5e5b1" config-ref="SAP_S_4HANA_Config" service="API_PRODUCT_SRV"
+            entityType="A_Product" target="dataS4Hana">
+            <s4hana:key><![CDATA[#[{
+    "Product": p('test.s4hana.product')
+}]]]></s4hana:key>
+        </s4hana:get-entity>
+        <s4hana:get-entity doc:name="Get Product Description from S4Hana" doc:id="050c1b7b-9cd2-4999-b67f-2b871bf5e5b1" config-ref="SAP_S_4HANA_Config" service="API_PRODUCT_SRV"
+            entityType="A_ProductDescription">
+            <s4hana:key><![CDATA[#[{
+	"Product": p('test.s4hana.product'),
+	"Language" : "EN",
+}]]]></s4hana:key>
+        </s4hana:get-entity>
+        <ee:transform doc:name="Add Description to testDataS4Hana variable" doc:id="a381aeb0-4bf2-4e79-9fcd-6a27466304e5">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+vars.dataS4Hana ++ {
+	"Description": payload	
+}]]></ee:set-payload>
+            </ee:message>
+            <ee:variables>
+            </ee:variables>
+        </ee:transform>
+    </sub-flow>
+    <munit:after-test name="test-suiteAfter_Test" description="After tests actions" doc:id="26649279-5938-4f5c-852e-c679fe428218">
+        <salesforce:delete doc:name="Delete test Products from Salesforce" doc:id="f6a690e1-157c-4d2a-b2fe-412de01b6853" config-ref="Salesforce_Config">
+            <salesforce:delete-ids><![CDATA[#[[vars.sfdcTestProductID]]]]></salesforce:delete-ids>
+        </salesforce:delete>
+        <ee:transform doc:name="Salesforce test data for update" doc:id="da5572ba-c244-4fad-b232-fbe4a8a2338e">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+  "Language": "EN",
+  "Product": vars.testProductS4Hana.Product,
+  "ProductDescription": vars.testProductS4Hana.Description.ProductDescription
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        <s4hana:update-entity service="API_PRODUCT_SRV" entityType="A_ProductDescription" doc:name="Update Product in S4Hana" doc:id="4a86acec-f67e-409b-beac-1cf7002440f4"
+            config-ref="SAP_S_4HANA_Config">
+        </s4hana:update-entity>
+    </munit:after-test>
+</mule>
