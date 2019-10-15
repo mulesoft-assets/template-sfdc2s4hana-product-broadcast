@@ -25,7 +25,7 @@ http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mu
             <os:default-value><![CDATA[#[p('watermark.default.expression')]]]></os:default-value>
         </os:retrieve>
         <salesforce:query doc:name="Query Products from Salesforce" doc:id="1f837449-37a1-4508-91fc-1be79cd8f457" config-ref="Salesforce_Config">
-            <salesforce:salesforce-query>Select Name, ProductCode, Description,LastModifiedDate from Product2 WHERE LastModifiedDate &gt; :lastModifiedDate</salesforce:salesforce-query>
+            <salesforce:salesforce-query>Select Name, ProductCode, Description, LastModifiedDate from Product2 WHERE LastModifiedDate &gt; :lastModifiedDate</salesforce:salesforce-query>
             <salesforce:parameters><![CDATA[#[output application/java
     ---
     {
@@ -44,7 +44,7 @@ http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mu
 output application/java
 ---
 payload map {
-    Product: upper($.ProductCode),
+    "Product": upper($.ProductCode),
     "ProductType" : p('s4hana.productType'),
     "BaseUnit" :  p('s4hana.baseUnit'),
     "ProductGroup":  p('s4hana.productGroup'),
