@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+    xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+    <flow name="schedulerFlow" doc:id="19dc7fad-b243-4243-a0ec-28c402554810">
+        <scheduler doc:name="Scheduler" doc:id="2c961634-6671-410e-b1da-f09ed8edfe92">
+            <scheduling-strategy>
+                <fixed-frequency frequency="${scheduler.frequency}" startDelay="${scheduler.start.delay}" />
+            </scheduling-strategy>
+        </scheduler>
+        <flow-ref doc:name="Call queryFlow" doc:id="b90ac00e-08f6-49e5-bd49-e3a71d899b7f" name="queryFlow" />
+        <flow-ref doc:name="Call businessLogicFlow" doc:id="b88440d9-94a3-4359-a4bc-0384a270f42f" name="businessLogicFlow" />
+        <error-handler>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="e3cf574a-14e3-4ddb-9d67-26da73241b1f" type="ANY">
+                <flow-ref doc:name="Call errorHandlingFlow" doc:id="0315499c-090d-4d22-95d4-a29a0758d40a" name="errorHandlingFlow" />
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+    <flow name="queryFlow">
+        <os:retrieve key="watermark" objectStore="watermarkStore" target="lastQueryTimestamp" doc:name="Retrieve lastQueryTimestamp">
+            <os:default-value><![CDATA[#[p('watermark.default.expression')]]]></os:default-value>
+        </os:retrieve>
+        <salesforce:query doc:name="Query Products from Salesforce" doc:id="1f837449-37a1-4508-91fc-1be79cd8f457" config-ref="Salesforce_Config">
+            <salesforce:salesforce-query>Select Name, ProductCode, Description, LastModifiedDate from Product2 WHERE LastModifiedDate &gt; :lastModifiedDate</salesforce:salesforce-query>
+            <salesforce:parameters><![CDATA[#[output application/java
+    ---
+    {
+    	"lastModifiedDate" : vars.lastQueryTimestamp
+    }]]]>
+            </salesforce:parameters>
+        </salesforce:query>
+        <set-variable value="#[max(payload map $.LastModifiedDate)]" doc:name="Set maxLastModifiedDate Variable" doc:id="a311ca18-9db4-489a-9301-aae228883828"
+            variableName="maxLastModifiedDate" />
+        <os:store key="watermark" failOnNullValue="false" objectStore="watermarkStore" doc:name="Store lastQueryTimestamp">
+            <os:value><![CDATA[#[vars.maxLastModifiedDate]]]></os:value>
+        </os:store>
+        <ee:transform doc:name="Mapping for S4Hana" doc:id="50c141e2-2f5d-4167-bb7f-557e259c56fc">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload map {
+    "Product": upper($.ProductCode),
+    "ProductType" : p('s4hana.productType'),
+    "BaseUnit" :  p('s4hana.baseUnit'),
+    "ProductGroup":  p('s4hana.productGroup'),
+    "to_Description": [{
+        "Product" : upper($.ProductCode),
+        "Language" : "EN",
+        "ProductDescription" : if (not isEmpty($.Description)) $.Description else $.Name
+  }]
+}
+]]></ee:set-payload>
+            </ee:message>
+            <ee:variables>
+            </ee:variables>
+        </ee:transform>
+    </flow>
+</mule>

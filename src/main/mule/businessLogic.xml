@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:s4hana="http://www.mulesoft.org/schema/mule/s4hana" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+    xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/s4hana http://www.mulesoft.org/schema/mule/s4hana/current/mule-s4hana.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+    <flow name="businessLogicFlow" doc:id="759839c4-b32d-4e87-9d36-ce63694cb83c">
+        <batch:job jobName="migrateProductsBatch" doc:id="5bd60a74-0002-4d70-ae4a-8211e67ae465" blockSize="${page.size}">
+            <batch:process-records>
+                <batch:step name="checkProductInS4HanaStep" doc:id="ea03d64b-2837-4637-bb5f-3fbaa10d4131">
+                    <set-variable value="#[payload]" doc:name="Set Product variable" doc:id="e283de8a-c8bc-4726-a7ca-ea4b6e055cca" variableName="product" />
+                    <s4hana:query service="API_PRODUCT_SRV" entityType="A_Product" doc:name="Get Product from S4Hana" doc:id="90827310-a1f5-4790-9ef1-a58f5d01d52d"
+                        config-ref="SAP_S_4HANA_Config" filter="#[&quot;Product eq '&quot; ++ payload.Product ++ &quot;'&quot;]" target="sapId" targetValue="#[payload[0].Product]" />
+                    <logger level="INFO" doc:name="Log extended payload" doc:id="6d9ac364-56e2-4be9-b5e1-c00aafef995a" message="#[output apllication/json --- payload]" />
+                </batch:step>
+                <batch:step name="createProductBatch" doc:id="89a2dbd2-421c-4481-98df-dfb4db5d90b8" acceptExpression='#[vars.sapId == null]'>
+                    <s4hana:create-entity service="API_PRODUCT_SRV" entityType="A_Product" doc:name="Create Product in S4Hana" doc:id="94e99fc1-0648-4e0b-932a-670ed07a8212"
+                        config-ref="SAP_S_4HANA_Config">
+                        <s4hana:entity><![CDATA[#[vars.Product]]]></s4hana:entity>
+                    </s4hana:create-entity>
+                    <ee:transform doc:name="Save S4 Hana Response" doc:id="f96e8740-2a87-4c16-bf6e-e089c0b7e681">
+                        <ee:message>
+                            <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
+                    <logger level="INFO" doc:name="Log Response" doc:id="011c736f-8635-4c2a-a388-aef876b6d879" message="Create product: #[output application/json --- payload]" />
+                </batch:step>
+                <batch:step name="updateProductBatch" doc:id="cafff2a7-c738-453a-82c6-550f08cd691e" acceptExpression="#[vars.sapId != null]">
+                    <s4hana:update-entity service="API_PRODUCT_SRV" entityType="A_Product" doc:name="Update Product in S4Hana" doc:id="4a86acec-f67e-409b-beac-1cf7002440f4"
+                        config-ref="SAP_S_4HANA_Config">
+                        <s4hana:entity><![CDATA[#[vars.Product]]]></s4hana:entity>
+                    </s4hana:update-entity>
+                    <s4hana:update-entity service="API_PRODUCT_SRV" entityType="A_ProductDescription" doc:name="Update Product Description in S4Hana" doc:id="4a86acec-f67e-409b-beac-1cf7002440f4"
+                        config-ref="SAP_S_4HANA_Config">
+                        <s4hana:entity><![CDATA[#[vars.Product.to_Description[0]]]]></s4hana:entity>
+                    </s4hana:update-entity>
+                    <ee:transform doc:name="Save S4Hana Response" doc:id="acebf704-b097-4167-a3fe-97eb9f0b3e96">
+                        <ee:message>
+                            <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
+                    <logger level="INFO" doc:name="Log Response" doc:id="c7e1c17d-0696-413d-a4a2-09ae72cac6eb" message="Update product: #[output application/json --- payload]" />
+                </batch:step>
+            </batch:process-records>
+            <batch:on-complete>
+                <ee:transform doc:name="Prepare migration result" doc:id="0dd79901-0af8-40a4-a660-01dbd300e552">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+    output text/plain
+    ---
+    "Migration Report: \n"
+
+    ++ "\n Time [milliseconds]: "       ++ payload.elapsedTimeInMillis!
+    ++ "\n Total Records: "             ++ payload.totalRecords!
+    ++ "\n Successful Records: "        ++ payload.successfulRecords!
+    ++ "\n Failed Records: "            ++ payload.failedRecords!
+    ++ "\n Loaded Records: "            ++ payload.loadedRecords!
+    ++ "\n Processed Records: "         ++ payload.processedRecords!]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                <logger level="INFO" doc:name="Migration process has finished!" doc:id="d23b9cc6-beea-459b-b640-ae986394c980" message="Migration process has finished: #[payload]" />
+            </batch:on-complete>
+        </batch:job>
+    </flow>
+</mule>
